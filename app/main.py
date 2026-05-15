@@ -20,8 +20,16 @@ from app                import PRODUCT_NAME, __version__
 from app.theme          import get_stylesheet
 from app.main_window    import RWAMainWindow
 
+# Dev-time bridge: let the user's AG license unlock the matching RWA
+# feature tier inside RWAGenie. Remove this once the server can mint
+# product='rwagenie' keys end-to-end and the desktop walks the user
+# through entering an RWAGenie key on first run.
+from app.license_bridge import install as _install_license_bridge
+
 
 def main() -> int:
+    _install_license_bridge()
+
     app = QApplication(sys.argv)
     app.setApplicationName(PRODUCT_NAME)
     app.setApplicationVersion(__version__)
@@ -50,14 +58,11 @@ def main() -> int:
     except Exception:
         pass
 
-    # AG's CompanyDialog handles "open existing / create new" and seeds
-    # the chart of accounts on creation. Reusing as-is for v0.1 — the
-    # dialog is branded "AccGenie" in its title but functionally creates
-    # a company DB that RWAGenie can use. Subclass + rebrand in a
-    # follow-up when marketing locks the look.
-    from main import CompanyDialog as _AGCompanyDialog
-    dlg = _AGCompanyDialog()
-    dlg.setWindowTitle(f"{PRODUCT_NAME} — Open Society")
+    # RWAGenie's own CompanyDialog (parallel to AG's but branded for
+    # societies). Importing AG's would collide with rwagenie/main.py on
+    # sys.path — kept separate so both repos own their entry-screen UX.
+    from app.company_dialog import CompanyDialog
+    dlg = CompanyDialog()
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return 0
 

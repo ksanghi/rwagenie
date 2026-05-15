@@ -17,6 +17,9 @@ from app.pages.flats_page    import FlatsPage
 from app.pages.members_page  import MembersPage
 from app.pages._coming_soon  import ComingSoonPage
 from app.models              import apply_rwa_schema
+from app.sidebar             import (
+    CollapsibleSection, SECTION_ORDER, section_for_label,
+)
 
 
 class RWAMainWindow(_AGMainWindow):
@@ -107,3 +110,53 @@ class RWAMainWindow(_AGMainWindow):
         _stub("Visitor Pass", "🎫", "rwa_visitor_pass",
               "Gate-issued or pre-authorised entry passes with vehicle "
               "no + expected-arrival window.")
+
+        # Reorganise the linear sidebar into collapsible sections —
+        # see app/sidebar.py for the grouping rules. Must run after
+        # every register_page() call so we see all the buttons.
+        self._regroup_sidebar_into_sections()
+
+    # ── Sidebar post-processing ─────────────────────────────────────────────
+
+    def _regroup_sidebar_into_sections(self) -> None:
+        """
+        Take the flat list AG built (self._nav_container of NavButtons +
+        QLabel section headers) and rebuild it as collapsible sections.
+
+        AG's register_page() appended widgets linearly. RWAGenie's
+        sidebar would run 30+ rows tall without grouping; collapsing
+        Accounting / Reports / Tax / Data / Settings by default keeps
+        RWA pages on the visible window.
+        """
+        # 1. Bucket each page's NavButton by which section it belongs in.
+        buckets: dict[str, list] = {name: [] for name, _ in SECTION_ORDER}
+        for label, _icon, _widget, btn in self._pages:
+            sec_name = section_for_label(label)
+            if sec_name not in buckets:
+                sec_name = "Other"
+            buckets[sec_name].append(btn)
+
+        # 2. Detach everything currently in the nav container — this
+        # includes the QLabel section headers AG added via the
+        # `section_above` parameter on register_page(). We're replacing
+        # those with the collapsible-section headers, so the originals
+        # go away.
+        while self._nav_container.count() > 0:
+            item = self._nav_container.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                # Original section-header QLabels become orphans and
+                # get GC'd. NavButtons we'll re-parent into sections
+                # immediately, so they have a live owner before any GC
+                # pass.
+
+        # 3. Rebuild: one CollapsibleSection per non-empty bucket.
+        for sec_name, expanded in SECTION_ORDER:
+            btns = buckets.get(sec_name, [])
+            if not btns:
+                continue
+            section = CollapsibleSection(sec_name, expanded=expanded)
+            for btn in btns:
+                section.add_button(btn)
+            self._nav_container.addWidget(section)

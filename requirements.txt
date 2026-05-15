@@ -1,0 +1,8 @@
+# RWAGenie runtime depends on AccGenie's runtime deps + the same
+# packages it relies on. Install AccGenie's requirements alongside:
+#     pip install -r requirements.txt
+#     pip install -r ../Aiccounting/requirements.txt
+#
+# Nothing here yet — RWAGenie inherits its full dep tree from AG.
+# Add a line here only when RWAGenie introduces a dependency AG
+# doesn't have (e.g. a WhatsApp SDK).

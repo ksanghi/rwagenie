@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Nuitka / packaging
+build/output/
+build/dist/
+nuitka-crash-report.xml
+
+# Per-machine runtime data
+data/
+
+# Secrets
+.env
+*.key
+
+# Eclipse
+.project
+.pydevproject
+.settings/
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/

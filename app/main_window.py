@@ -13,11 +13,15 @@ from __future__ import annotations
 
 from ui.main_window import MainWindow as _AGMainWindow
 
-from app.pages.flats_page    import FlatsPage
-from app.pages.members_page  import MembersPage
-from app.pages._coming_soon  import ComingSoonPage
-from app.models              import apply_rwa_schema
-from app.sidebar             import (
+from app.pages.flats_page            import FlatsPage
+from app.pages.members_page          import MembersPage
+from app.pages.notices_page          import NoticeBoardPage
+from app.pages.complaints_page       import ComplaintsPage
+from app.pages.broadcasts_page       import BroadcastsPage
+from app.pages.polls_page            import PollsPage
+from app.pages.visitor_passes_page   import VisitorPassPage
+from app.models                       import apply_rwa_schema
+from app.sidebar                      import (
     CollapsibleSection, SECTION_ORDER, section_for_label,
 )
 
@@ -86,30 +90,22 @@ class RWAMainWindow(_AGMainWindow):
         _add("Flats",   "🏠", FlatsPage,   "rwa_flat_ledger")
         _add("Members", "👥", MembersPage, "rwa_member_directory")
 
-        # ── Free-tier scaffolding — sidebar entries shipped with v0.1 so
-        # the user sees the full intended surface. Schemas (rwa_notices /
-        # _complaints / _broadcasts / _polls / _visitor_passes) already
-        # exist in the company DB; only the CRUD UI is pending.
-        def _stub(label, icon, feature, blurb):
+        # ── Free-tier pages — full CRUD shipping with v0.1. Schemas
+        # (rwa_notices / _complaints / _broadcasts / _polls /
+        # _visitor_passes) and their services back each page.
+        def _add_rwa(label, icon, page_cls, feature):
             if lmgr is None or lmgr.has_feature(feature):
-                page = ComingSoonPage(label, blurb)
+                page = page_cls(self.db, self.company_id, self.tree)
+                self.register_page(label, icon, page)
             else:
                 page = self._locked_page(feature, "STANDARD", label)
-            self.register_page(label, icon, page)
+                self.register_page(label, icon, page)
 
-        _stub("Notice Board", "📢", "rwa_notice_board",
-              "Society-wide announcements visible to every member.")
-        _stub("Complaints",   "⚠",  "rwa_complaint_tracking",
-              "Track plumbing / electrical / security tickets to resolution.")
-        _stub("Broadcasts",   "📣", "rwa_broadcast_messaging",
-              "Targeted messages — emails today, SMS/WhatsApp once "
-              "delivery providers are wired in.")
-        _stub("Polls",        "🗳", "rwa_polls",
-              "AGM resolutions, amenity votes. One-vote-per-flat or "
-              "per-owner, configurable.")
-        _stub("Visitor Pass", "🎫", "rwa_visitor_pass",
-              "Gate-issued or pre-authorised entry passes with vehicle "
-              "no + expected-arrival window.")
+        _add_rwa("Notice Board", "📢", NoticeBoardPage, "rwa_notice_board")
+        _add_rwa("Complaints",   "⚠",  ComplaintsPage,   "rwa_complaint_tracking")
+        _add_rwa("Broadcasts",   "📣", BroadcastsPage,   "rwa_broadcast_messaging")
+        _add_rwa("Polls",        "🗳", PollsPage,        "rwa_polls")
+        _add_rwa("Visitor Pass", "🎫", VisitorPassPage,  "rwa_visitor_pass")
 
         # Reorganise the linear sidebar into collapsible sections —
         # see app/sidebar.py for the grouping rules. Must run after

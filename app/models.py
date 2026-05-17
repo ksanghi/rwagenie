@@ -181,6 +181,36 @@ CREATE TABLE IF NOT EXISTS rwa_poll_votes (
     UNIQUE(poll_id, flat_id, owner_id)
 );
 
+-- Per-society key/value settings (SMTP creds, SMS API key, default
+-- from-address, etc.). Each row is one key for one company. Values
+-- are stored as text; secrets-at-rest are NOT encrypted in v0.1 —
+-- the DB lives under per-user %APPDATA% which is not network-exposed
+-- by default.
+CREATE TABLE IF NOT EXISTS rwa_settings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id      INTEGER NOT NULL REFERENCES companies(id),
+    key             TEXT    NOT NULL,
+    value           TEXT,
+    updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(company_id, key)
+);
+
+-- Per-recipient delivery log for a broadcast. One row per
+-- (broadcast, owner) pair when a send is attempted. Lets the admin
+-- see exactly who got what and which ones bounced.
+CREATE TABLE IF NOT EXISTS rwa_broadcast_recipients (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    broadcast_id    INTEGER NOT NULL REFERENCES rwa_broadcasts(id) ON DELETE CASCADE,
+    owner_id        INTEGER REFERENCES rwa_owners(id),
+    flat_id         INTEGER REFERENCES rwa_flats(id),
+    channel         TEXT    NOT NULL,                -- EMAIL / SMS / WHATSAPP
+    address         TEXT    NOT NULL,                -- email or phone the message was sent to
+    status          TEXT    NOT NULL DEFAULT 'PENDING', -- PENDING / SENT / FAILED / SKIPPED
+    error           TEXT,
+    attempted_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rwa_bcast_recipients ON rwa_broadcast_recipients(broadcast_id);
+
 -- Visitor passes: gate-issued or pre-authorised entry passes.
 CREATE TABLE IF NOT EXISTS rwa_visitor_passes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

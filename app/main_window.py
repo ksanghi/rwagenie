@@ -20,7 +20,10 @@ from app.pages.complaints_page       import ComplaintsPage
 from app.pages.broadcasts_page       import BroadcastsPage
 from app.pages.polls_page            import PollsPage
 from app.pages.visitor_passes_page   import VisitorPassPage
+from app.pages.users_page            import UsersPage
+from app.pages.audit_log_page        import AuditLogPage
 from app.models                       import apply_rwa_schema
+from app.services.auth                import AuthSession
 from app.sidebar                      import (
     CollapsibleSection, SECTION_ORDER, section_for_label,
 )
@@ -36,7 +39,14 @@ class RWAMainWindow(_AGMainWindow):
     plan.
     """
 
-    def __init__(self, db, company_id: int, tree, engine):
+    def __init__(self, db, company_id: int, tree, engine,
+                 auth: AuthSession | None = None):
+        # Stash the authenticated user *before* super().__init__ runs so
+        # AG's _build_pages() callbacks (if any of them ever consult it)
+        # can see it. Pages reach this via `self.parent().auth` or via
+        # an explicit `auth=` constructor arg.
+        self.auth = auth
+
         # Make sure the RWA tables exist before we instantiate pages that
         # query them. Idempotent — CREATE TABLE IF NOT EXISTS.
         try:
@@ -54,7 +64,9 @@ class RWAMainWindow(_AGMainWindow):
         # accounting pages.
         super().__init__(db, company_id, tree, engine)
 
-        # RWAGenie window title overrides AG's "AccGenie — <co>".
+        # RWAGenie window title overrides AG's "AccGenie — <co>" and
+        # includes the signed-in user/role so the admin can see at a
+        # glance whose session they're in.
         try:
             co_row = db.execute(
                 "SELECT name FROM companies WHERE id=?", (company_id,),
@@ -62,9 +74,12 @@ class RWAMainWindow(_AGMainWindow):
             co_name = co_row["name"] if co_row else ""
         except Exception:
             co_name = ""
-        self.setWindowTitle(
-            f"RWAGenie — {co_name}" if co_name else "RWAGenie"
-        )
+        bits = ["RWAGenie"]
+        if co_name:
+            bits.append(co_name)
+        if self.auth is not None:
+            bits.append(self.auth.label())
+        self.setWindowTitle("  —  ".join(bits))
 
         self._register_rwa_pages()
 
@@ -106,6 +121,22 @@ class RWAMainWindow(_AGMainWindow):
         _add_rwa("Broadcasts",   "📣", BroadcastsPage,   "rwa_broadcast_messaging")
         _add_rwa("Polls",        "🗳", PollsPage,        "rwa_polls")
         _add_rwa("Visitor Pass", "🎫", VisitorPassPage,  "rwa_visitor_pass")
+
+        # ── Admin pages — role-gated. Skipped entirely (not even shown
+        # as locked placeholders) for users whose role doesn't grant
+        # the permission, because a non-admin shouldn't even be teased
+        # by their existence in the sidebar.
+        if self.auth is not None:
+            if self.auth.can("manage_users"):
+                self.register_page(
+                    "Users", "👤",
+                    UsersPage(self.db, self.company_id, self.tree, self.auth),
+                )
+            if self.auth.can("view_audit"):
+                self.register_page(
+                    "Audit Log", "📜",
+                    AuditLogPage(self.db, self.company_id, self.tree, self.auth),
+                )
 
         # Reorganise the linear sidebar into collapsible sections —
         # see app/sidebar.py for the grouping rules. Must run after

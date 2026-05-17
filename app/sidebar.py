@@ -151,6 +151,10 @@ _LABEL_TO_SECTION: list[tuple[str, str]] = [
     ("AI Document",      "Data"),
     ("Period Lock",      "Data"),
 
+    # Admin (RWAGenie user management + audit)
+    ("Users",            "Admin"),
+    ("Audit Log",        "Admin"),
+
     # Settings
     ("License",          "Settings"),
     ("Settings",         "Settings"),
@@ -164,6 +168,7 @@ SECTION_ORDER: list[tuple[str, bool]] = [
     ("Reports",    False),
     ("Tax",        False),
     ("Data",       False),
+    ("Admin",      False),
     ("Settings",   False),
     ("Other",      False),   # safety net; usually empty
 ]

@@ -22,6 +22,7 @@ from app.services.broadcasts import (
 )
 from app.services.broadcast_send import BroadcastSendService, SendResult
 from app.pages._common               import style_table, apply_text_filter
+from app.pages._audit_hooks          import page_audit
 from app.pages.broadcast_settings_dialog import BroadcastSettingsDialog
 
 
@@ -389,6 +390,8 @@ class BroadcastsPage(QWidget):
         self._progress.setCancelButton(None)
         self._progress.show()
 
+        self._last_send_bid = bid
+
         self._thread = QThread(self)
         self._worker = _SendWorker(self.send_svc, bid)
         self._worker.moveToThread(self._thread)
@@ -429,6 +432,27 @@ class BroadcastsPage(QWidget):
             return
 
         assert result is not None
+        # Audit log: who sent what, to how many, with what outcome.
+        # `_last_send_bid` is set in _on_send_now before the worker
+        # starts so we still know the broadcast id here.
+        bid = getattr(self, "_last_send_bid", None)
+        if bid is not None:
+            bcast = self.svc.get(bid) or {}
+            page_audit(
+                self, action="send_broadcast",
+                entity_type="broadcast", entity_id=bid,
+                summary=f"{bcast.get('subject','')} · "
+                        f"{result.sent} sent / {result.failed} failed / "
+                        f"{result.skipped} skipped",
+                after={
+                    "channel":  bcast.get("channel"),
+                    "audience": bcast.get("audience"),
+                    "sent":     result.sent,
+                    "failed":   result.failed,
+                    "skipped":  result.skipped,
+                },
+            )
+
         msg = (
             f"✓ Sent:    {result.sent}\n"
             f"✗ Failed:  {result.failed}\n"
@@ -463,6 +487,11 @@ class BroadcastsPage(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
         self.svc.delete(bid)
+        page_audit(
+            self, action="delete_broadcast",
+            entity_type="broadcast", entity_id=bid,
+            summary=b.get("subject") or "",
+        )
         self.refresh()
 
 

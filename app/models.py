@@ -181,6 +181,47 @@ CREATE TABLE IF NOT EXISTS rwa_poll_votes (
     UNIQUE(poll_id, flat_id, owner_id)
 );
 
+-- Desktop users — multiple committee members can log in to one
+-- society DB with different roles. password_hash is PBKDF2-HMAC-SHA256
+-- with a per-user salt; see app/services/auth.py for format.
+--
+-- On first launch of a fresh society DB we auto-seed an 'admin' user
+-- with password 'admin'. The Users page nags the admin to change it.
+CREATE TABLE IF NOT EXISTS rwa_users (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id      INTEGER NOT NULL REFERENCES companies(id),
+    username        TEXT    NOT NULL,
+    password_hash   TEXT    NOT NULL,
+    role            TEXT    NOT NULL DEFAULT 'admin',   -- admin / treasurer / secretary / auditor
+    full_name       TEXT,
+    email           TEXT,
+    active          INTEGER NOT NULL DEFAULT 1,
+    last_login_at   TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(company_id, username)
+);
+
+-- Append-only audit trail. One row per state-changing user action.
+-- Page handlers call AuditLogService.record() after the underlying
+-- service call succeeds. `before_json` / `after_json` are optional
+-- snapshots of the entity row (JSON text) so the auditor can diff
+-- updates without joining back to historical data.
+CREATE TABLE IF NOT EXISTS rwa_audit_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id      INTEGER NOT NULL REFERENCES companies(id),
+    user_id         INTEGER REFERENCES rwa_users(id),
+    username        TEXT,                                 -- denormalised: survives user deletion
+    action          TEXT NOT NULL,                        -- e.g. "add_flat", "update_owner", "send_broadcast"
+    entity_type     TEXT,                                 -- e.g. "flat", "owner", "notice"
+    entity_id       INTEGER,
+    summary         TEXT,                                 -- short human-readable: "Flat A-101"
+    before_json     TEXT,
+    after_json      TEXT,
+    at              TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_rwa_audit_company ON rwa_audit_log(company_id, at DESC);
+CREATE INDEX IF NOT EXISTS idx_rwa_audit_entity  ON rwa_audit_log(company_id, entity_type, entity_id);
+
 -- Per-society key/value settings (SMTP creds, SMS API key, default
 -- from-address, etc.). Each row is one key for one company. Values
 -- are stored as text; secrets-at-rest are NOT encrypted in v0.1 —

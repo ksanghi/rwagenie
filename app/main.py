@@ -70,10 +70,40 @@ def main() -> int:
     company_id = dlg.selected_cid
     tree       = dlg.selected_tree
 
+    # Apply RWAGenie's additive schema (rwa_users, rwa_audit_log,
+    # rwa_settings, …) BEFORE the LoginDialog tries to read users.
+    # RWAMainWindow also applies the schema, but the login dialog
+    # needs the rwa_users table before the main window is built.
+    from app.models import apply_rwa_schema
+    try:
+        apply_rwa_schema(db)
+    except Exception:
+        import logging, traceback
+        logging.getLogger(__name__).error(
+            "apply_rwa_schema (pre-login) failed:\n%s",
+            traceback.format_exc(),
+        )
+
+    # Authenticate. Fresh DBs get a default admin/admin seeded
+    # automatically; existing DBs use whatever users exist.
+    from app.pages.login_dialog import LoginDialog
+    co_name = ""
+    try:
+        co_row = db.execute(
+            "SELECT name FROM companies WHERE id=?", (company_id,),
+        ).fetchone()
+        co_name = co_row["name"] if co_row else ""
+    except Exception:
+        pass
+    login = LoginDialog(db, company_id, company_name=co_name)
+    if login.exec() != QDialog.DialogCode.Accepted or login.session is None:
+        return 0
+    auth = login.session
+
     from core.voucher_engine import VoucherEngine
     engine = VoucherEngine(db, company_id)
 
-    window = RWAMainWindow(db, company_id, tree, engine)
+    window = RWAMainWindow(db, company_id, tree, engine, auth=auth)
     window.show()
     return app.exec()
 

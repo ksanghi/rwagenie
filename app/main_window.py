@@ -21,6 +21,7 @@ from app.pages.broadcasts_page       import BroadcastsPage
 from app.pages.polls_page            import PollsPage
 from app.pages.visitor_passes_page   import VisitorPassPage
 from app.pages.wallet_page           import WalletPage
+from app.pages.cloud_sync_page       import CloudSyncPage
 from app.pages.users_page            import UsersPage
 from app.pages.audit_log_page        import AuditLogPage
 from app.models                       import apply_rwa_schema
@@ -128,6 +129,14 @@ class RWAMainWindow(_AGMainWindow):
         self.register_page(
             "Wallet", "💰",
             WalletPage(self.db, self.company_id, self.tree),
+        )
+
+        # Cloud Sync — bootstrap + manual sync to rwagenie-web. Also
+        # always-on (the wallet is the monetisation surface; cloud
+        # itself is free).
+        self.register_page(
+            "Cloud Sync", "☁",
+            CloudSyncPage(self.db, self.company_id, self.tree),
         )
 
         # ── Admin pages — role-gated. Skipped entirely (not even shown

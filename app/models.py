@@ -138,7 +138,10 @@ CREATE TABLE IF NOT EXISTS rwa_complaints (
     assigned_to     TEXT,
     resolution_notes TEXT,
     raised_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    resolved_at     TEXT
+    resolved_at     TEXT,
+    -- Cloud sync: the cloud-side id of complaints that came from the
+    -- resident web app. NULL when admin created the complaint locally.
+    cloud_id        INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_rwa_complaints_company ON rwa_complaints(company_id, status, raised_at);
 
@@ -315,6 +318,10 @@ _RWA_ADDITIVE_COLUMNS: list[tuple[str, str, str]] = [
     ("rwa_flat_owners", "monthly_rent",              "REAL"),
     ("rwa_flat_owners", "security_deposit",          "REAL"),
     ("rwa_flat_owners", "lease_doc_path",            "TEXT"),
+    # Cloud sync (v0.1.4+): the cloud's complaint id for complaints
+    # that originated from the resident web app. NULL for desktop-
+    # created complaints.
+    ("rwa_complaints",  "cloud_id",                  "INTEGER"),
 ]
 
 

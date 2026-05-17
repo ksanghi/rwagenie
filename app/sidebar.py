@@ -124,6 +124,7 @@ _LABEL_TO_SECTION: list[tuple[str, str]] = [
     ("Polls",            "RWA"),
     ("Visitor Pass",     "RWA"),
     ("Wallet",           "RWA"),
+    ("Cloud Sync",       "RWA"),
 
     # Accounting — daily-use entry surface
     ("Post Voucher",     "Accounting"),

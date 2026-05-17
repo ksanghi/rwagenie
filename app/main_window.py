@@ -20,6 +20,7 @@ from app.pages.complaints_page       import ComplaintsPage
 from app.pages.broadcasts_page       import BroadcastsPage
 from app.pages.polls_page            import PollsPage
 from app.pages.visitor_passes_page   import VisitorPassPage
+from app.pages.wallet_page           import WalletPage
 from app.pages.users_page            import UsersPage
 from app.pages.audit_log_page        import AuditLogPage
 from app.models                       import apply_rwa_schema
@@ -121,6 +122,13 @@ class RWAMainWindow(_AGMainWindow):
         _add_rwa("Broadcasts",   "📣", BroadcastsPage,   "rwa_broadcast_messaging")
         _add_rwa("Polls",        "🗳", PollsPage,        "rwa_polls")
         _add_rwa("Visitor Pass", "🎫", VisitorPassPage,  "rwa_visitor_pass")
+
+        # Wallet — SMS balance. Available on every tier (cloud features
+        # are free; wallet meters the SMS pass-through). No feature gate.
+        self.register_page(
+            "Wallet", "💰",
+            WalletPage(self.db, self.company_id, self.tree),
+        )
 
         # ── Admin pages — role-gated. Skipped entirely (not even shown
         # as locked placeholders) for users whose role doesn't grant

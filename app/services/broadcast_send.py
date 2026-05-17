@@ -29,6 +29,7 @@ from email.utils import formataddr
 from typing import Callable, Iterable, Optional
 
 from app.services.settings import SettingsService
+from app.services import wallet
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +277,34 @@ class BroadcastSendService:
         result = SendResult()
         total = len(recipients)
 
+        # ── Wallet pre-check (SMS only) ──
+        # Email goes via the society's own SMTP — no per-send cost to us.
+        # SMS goes via Fast2SMS metered through the license-server wallet;
+        # check we can afford the whole broadcast before starting, so
+        # half-sent broadcasts are rare. Per-recipient debit still happens
+        # inside the loop, catching any concurrent drains.
+        if channel == "SMS":
+            recipients_with_phone = sum(1 for r in recipients if r.phone)
+            needed = wallet.SMS_PRICE_PAISE * recipients_with_phone
+            try:
+                bal = wallet.get_balance()
+            except wallet.WalletUnconfigured as e:
+                raise RuntimeError(
+                    "SMS sending needs an activated RWAGenie license "
+                    "with SMS wallet credit. " + str(e)
+                ) from e
+            except wallet.WalletError as e:
+                raise RuntimeError(
+                    f"Couldn't reach the license-server to check SMS "
+                    f"balance: {e}"
+                ) from e
+            if bal < needed:
+                raise RuntimeError(
+                    f"Not enough SMS credit. Balance ₹{bal/100:,.2f}, "
+                    f"need ₹{needed/100:,.2f} for {recipients_with_phone} "
+                    f"recipient(s). Top up from the Wallet page."
+                )
+
         # Pre-clear prior attempts for this broadcast — re-send semantics.
         self.db.execute(
             "DELETE FROM rwa_broadcast_recipients WHERE broadcast_id=?",
@@ -310,6 +339,17 @@ class BroadcastSendService:
                             )
                         else:  # SMS
                             assert sender_sms is not None
+                            # Atomic debit *before* dispatch. If the
+                            # wallet drained since the pre-check, this
+                            # raises and we mark FAILED without sending.
+                            try:
+                                wallet.debit(
+                                    kind="sms_broadcast",
+                                    recipient_phone=addr,
+                                    ref=f"bcast-{broadcast_id}-{rcpt.owner_id}",
+                                )
+                            except wallet.InsufficientBalance:
+                                raise   # caught below as FAILED
                             sender_sms.send(to=addr, body=bcast["body"] or "")
                         status = "SENT"
                         result.sent += 1

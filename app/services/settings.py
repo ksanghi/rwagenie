@@ -26,6 +26,13 @@ list updated):
     sms.route                   str   "q" = transactional, "p" = promotional;
                                        defaults to "q"
 
+    society.unit_type           str   "FLAT" or "PLOT" — drives whether the
+                                       UI calls units "Flats" or "Plots".
+                                       Default "FLAT".
+    society.area_unit           str   "SQFT" / "SQM" / "SQYD" / "ACRE" —
+                                       unit for the single Area field on
+                                       each flat/plot. Default "SQFT".
+
 Values are stored as TEXT. Callers convert as needed via the typed
 helpers (`get_int`, `get_bool`).
 """
@@ -104,3 +111,46 @@ class SettingsService:
             "sender_id":  self.get("sms.sender_id") or "",
             "route":      self.get("sms.route") or "q",
         }
+
+    # ── Society-level UX defaults ───────────────────────────────────────
+
+    UNIT_TYPES: tuple[str, ...] = ("FLAT", "PLOT")
+    AREA_UNITS: tuple[str, ...] = ("SQFT", "SQM", "SQYD", "ACRE")
+    AREA_UNIT_LABELS: dict[str, str] = {
+        "SQFT":  "sq ft",
+        "SQM":   "sq m",
+        "SQYD":  "sq yd",
+        "ACRE":  "acre",
+    }
+
+    def unit_type(self) -> str:
+        """'FLAT' for apartment societies, 'PLOT' for plot owners
+        associations. Defaults to FLAT — existing societies keep behaving
+        the same."""
+        v = (self.get("society.unit_type") or "FLAT").upper()
+        return v if v in self.UNIT_TYPES else "FLAT"
+
+    def set_unit_type(self, v: str) -> None:
+        v = (v or "").upper()
+        if v not in self.UNIT_TYPES:
+            raise ValueError(f"unit_type must be one of {self.UNIT_TYPES}")
+        self.set("society.unit_type", v)
+
+    def area_unit(self) -> str:
+        v = (self.get("society.area_unit") or "SQFT").upper()
+        return v if v in self.AREA_UNITS else "SQFT"
+
+    def set_area_unit(self, v: str) -> None:
+        v = (v or "").upper()
+        if v not in self.AREA_UNITS:
+            raise ValueError(f"area_unit must be one of {self.AREA_UNITS}")
+        self.set("society.area_unit", v)
+
+    def area_unit_label(self) -> str:
+        """Human label for the configured area unit, e.g. 'sq ft'."""
+        return self.AREA_UNIT_LABELS.get(self.area_unit(), "sq ft")
+
+    def unit_noun(self, *, plural: bool = False) -> str:
+        """'Flat'/'Flats' or 'Plot'/'Plots' for UI labels."""
+        base = "Flat" if self.unit_type() == "FLAT" else "Plot"
+        return base + ("s" if plural else "")

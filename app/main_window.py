@@ -104,8 +104,16 @@ class RWAMainWindow(_AGMainWindow):
                 placeholder = self._locked_page(feature, "STANDARD", label)
                 self.register_page(label, icon, placeholder, section_above=section)
 
-        _add("Flats",   "🏠", FlatsPage,   "rwa_flat_ledger")
-        _add("Members", "👥", MembersPage, "rwa_member_directory")
+        # Sidebar label adapts to the society's unit type (FLAT/PLOT).
+        # Read at startup; changing it via the Flats page's "⚙ Society"
+        # dialog requires an app restart for the sidebar to relabel.
+        try:
+            from app.services.settings import SettingsService as _S
+            _flats_label = _S(self.db, self.company_id).unit_noun(plural=True)
+        except Exception:
+            _flats_label = "Flats"
+        _add(_flats_label, "🏠", FlatsPage,   "rwa_flat_ledger")
+        _add("Members",    "👥", MembersPage, "rwa_member_directory")
 
         # ── Free-tier pages — full CRUD shipping with v0.1. Schemas
         # (rwa_notices / _complaints / _broadcasts / _polls /

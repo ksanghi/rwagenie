@@ -24,6 +24,7 @@ from app.services import (
     FlatsService, OwnersService,
     VALID_OCCUPATION, VALID_BILL_PAYER,
 )
+from app.services.settings import SettingsService
 
 
 _FLAT_TYPES = ["", "Studio", "1BHK", "1RK", "2BHK", "3BHK", "4BHK",
@@ -57,12 +58,23 @@ class _FlatDialog(QDialog):
                  flats_service: FlatsService,
                  owners_service: OwnersService,
                  flat_id: int | None = None,
-                 parent=None):
+                 parent=None,
+                 settings: SettingsService | None = None):
         super().__init__(parent)
         self.flats = flats_service
         self.owners = owners_service
         self.flat_id = flat_id
-        self.setWindowTitle("Edit Flat" if flat_id else "Add Flat")
+        # Settings drive labels (Flat vs Plot) and the area-unit suffix.
+        # Caller from FlatsPage passes its SettingsService; fall back to
+        # a fresh one if a caller didn't (keeps the dialog robust).
+        self.settings = settings or SettingsService(flats_service.db,
+                                                    flats_service.company_id)
+        self._noun = self.settings.unit_noun()           # "Flat" / "Plot"
+        self._is_plot = self.settings.unit_type() == "PLOT"
+
+        self.setWindowTitle(
+            f"Edit {self._noun}" if flat_id else f"Add {self._noun}"
+        )
         self.setMinimumWidth(560)
         self.setMinimumHeight(420)
         self.setModal(True)
@@ -73,7 +85,9 @@ class _FlatDialog(QDialog):
         layout.setSpacing(10)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        hdr = QLabel("✎ Edit Flat" if self._existing else "+ Add Flat")
+        hdr = QLabel(
+            f"✎ Edit {self._noun}" if self._existing else f"+ Add {self._noun}"
+        )
         hdr.setStyleSheet(
             f"font-size:14px; font-weight:bold; color:{THEME['accent']};"
         )
@@ -101,22 +115,30 @@ class _FlatDialog(QDialog):
         w = QWidget(); form = QFormLayout(w); form.setSpacing(8)
         e = self._existing or {}
 
+        ph = "e.g. 12, B-7, S-201" if self._is_plot else "e.g. 101, A-203, T2-805"
         self.flat_no = QLineEdit(e.get("flat_no") or "")
-        self.flat_no.setPlaceholderText("e.g. 101, A-203, T2-805")
+        self.flat_no.setPlaceholderText(ph)
         self.flat_no.setFixedHeight(32)
-        form.addRow(QLabel("Flat Number *"), self.flat_no)
+        form.addRow(QLabel(f"{self._noun} Number *"), self.flat_no)
 
         self.block = QLineEdit(e.get("block") or "")
         self.block.setFixedHeight(32)
         form.addRow(QLabel("Block"), self.block)
 
+        # Tower is meaningful in apartment societies; for plot societies
+        # we relabel to Phase (common in plotted layouts).
         self.tower = QLineEdit(e.get("tower") or "")
         self.tower.setFixedHeight(32)
-        form.addRow(QLabel("Tower"), self.tower)
+        form.addRow(
+            QLabel("Phase" if self._is_plot else "Tower"),
+            self.tower,
+        )
 
+        # Floor and BHK type are FLAT-only — hide for PLOT entirely.
         self.floor = QLineEdit(e.get("floor") or "")
         self.floor.setFixedHeight(32)
-        form.addRow(QLabel("Floor"), self.floor)
+        if not self._is_plot:
+            form.addRow(QLabel("Floor"), self.floor)
 
         self.flat_type = QComboBox()
         self.flat_type.setEditable(True)
@@ -124,20 +146,29 @@ class _FlatDialog(QDialog):
         self.flat_type.setFixedHeight(32)
         if e.get("flat_type"):
             self.flat_type.setCurrentText(e["flat_type"])
-        form.addRow(QLabel("Type"), self.flat_type)
+        if not self._is_plot:
+            form.addRow(QLabel("Type"), self.flat_type)
 
-        self.area = QDoubleSpinBox(); self.area.setRange(0, 99999)
-        self.area.setDecimals(2); self.area.setSuffix(" sq ft")
+        # Single Area field — the unit comes from society settings.
+        # The value is stored in the existing `area_sqft` column, but
+        # interpreted in whatever unit the society chose (no implicit
+        # conversion: the operator enters the number in their chosen
+        # unit, period).
+        area_suffix = " " + self.settings.area_unit_label()
+        self.area = QDoubleSpinBox(); self.area.setRange(0, 9999999)
+        self.area.setDecimals(2); self.area.setSuffix(area_suffix)
         self.area.setFixedHeight(32)
         if e.get("area_sqft"): self.area.setValue(float(e["area_sqft"]))
-        form.addRow(QLabel("Carpet Area"), self.area)
+        form.addRow(QLabel("Area"), self.area)
 
-        self.built_up = QDoubleSpinBox(); self.built_up.setRange(0, 99999)
-        self.built_up.setDecimals(2); self.built_up.setSuffix(" sq ft")
+        # Built-up area kept on the model for backward compatibility but
+        # no longer surfaced in the UI — operator-requested single size.
+        self.built_up = QDoubleSpinBox(); self.built_up.setRange(0, 9999999)
+        self.built_up.setDecimals(2); self.built_up.setSuffix(area_suffix)
         self.built_up.setFixedHeight(32)
         if e.get("built_up_area_sqft"):
             self.built_up.setValue(float(e["built_up_area_sqft"]))
-        form.addRow(QLabel("Built-up Area"), self.built_up)
+        self.built_up.hide()
 
         return w
 
@@ -314,18 +345,85 @@ class _FlatDialog(QDialog):
         self.accept()
 
 
+class _SocietySettingsDialog(QDialog):
+    """Tiny dialog for society-wide unit settings: FLAT vs PLOT,
+    and the area unit (sq ft / sq m / sq yd / acre).
+    Updates take effect on the next page refresh."""
+
+    saved = Signal()
+
+    def __init__(self, settings: SettingsService, parent=None):
+        super().__init__(parent)
+        self.settings = settings
+        self.setWindowTitle("Society Settings")
+        self.setMinimumWidth(360)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        info = QLabel(
+            "These settings change the labels used across the app for this "
+            "society. Existing data is preserved — only labels and units "
+            "change.\n\n"
+            "Note: the sidebar entry name updates on next app restart."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet(f"color:{THEME['text_secondary']}; font-size:11px;")
+        layout.addWidget(info)
+
+        form = QFormLayout()
+        form.setSpacing(8)
+
+        self.unit_type_combo = QComboBox()
+        self.unit_type_combo.addItem("Flats (apartments / units)", "FLAT")
+        self.unit_type_combo.addItem("Plots (plot owners association)", "PLOT")
+        current_ut = self.settings.unit_type()
+        for i in range(self.unit_type_combo.count()):
+            if self.unit_type_combo.itemData(i) == current_ut:
+                self.unit_type_combo.setCurrentIndex(i); break
+        form.addRow(QLabel("Unit type"), self.unit_type_combo)
+
+        self.area_unit_combo = QComboBox()
+        for code in SettingsService.AREA_UNITS:
+            self.area_unit_combo.addItem(
+                SettingsService.AREA_UNIT_LABELS[code], code,
+            )
+        current_au = self.settings.area_unit()
+        for i in range(self.area_unit_combo.count()):
+            if self.area_unit_combo.itemData(i) == current_au:
+                self.area_unit_combo.setCurrentIndex(i); break
+        form.addRow(QLabel("Area unit"), self.area_unit_combo)
+
+        layout.addLayout(form)
+
+        btns = QHBoxLayout()
+        cancel = QPushButton("Cancel"); cancel.clicked.connect(self.reject)
+        save   = QPushButton("Save");   save.setObjectName("btn_primary")
+        save.clicked.connect(self._save)
+        btns.addStretch(1); btns.addWidget(cancel); btns.addWidget(save)
+        layout.addLayout(btns)
+
+    def _save(self):
+        self.settings.set_unit_type(self.unit_type_combo.currentData())
+        self.settings.set_area_unit(self.area_unit_combo.currentData())
+        self.saved.emit()
+        self.accept()
+
+
 class FlatsPage(QWidget):
-    """Master list of flats. Filter + sortable headers + outstanding-
-    dues column (computed via FlatsService.outstanding_balance_for_flats —
-    single SQL, scales to thousands of flats)."""
+    """Master list of flats / plots. Labels and area unit adapt to the
+    society's configured unit type — see Society Settings."""
 
     def __init__(self, db, company_id: int, tree, parent=None):
         self.db = db
         self.company_id = company_id
         self.tree = tree
         super().__init__(parent)
-        self.flats  = FlatsService(db, company_id, tree)
-        self.owners = OwnersService(db, company_id)
+        self.flats    = FlatsService(db, company_id, tree)
+        self.owners   = OwnersService(db, company_id)
+        self.settings = SettingsService(db, company_id)
         self._build_ui()
         self.refresh()
 
@@ -334,15 +432,18 @@ class FlatsPage(QWidget):
         layout.setContentsMargins(24, 16, 24, 24)
         layout.setSpacing(10)
 
-        title = QLabel("Flats")
-        title.setObjectName("page_title")
-        layout.addWidget(title)
-        sub = QLabel(
-            "All flats / units in the society. Each flat has its own "
-            "ledger under Sundry Debtors for maintenance billing."
+        plural = self.settings.unit_noun(plural=True)   # "Flats" / "Plots"
+        singular = self.settings.unit_noun()             # "Flat" / "Plot"
+
+        self.title_label = QLabel(plural)
+        self.title_label.setObjectName("page_title")
+        layout.addWidget(self.title_label)
+        self.subtitle_label = QLabel(
+            f"All {plural.lower()} in the society. Each {singular.lower()} "
+            "has its own ledger under Sundry Debtors for maintenance billing."
         )
-        sub.setObjectName("page_subtitle")
-        layout.addWidget(sub)
+        self.subtitle_label.setObjectName("page_subtitle")
+        layout.addWidget(self.subtitle_label)
 
         # Toolbar
         bar = QFrame(); bar.setObjectName("card")
@@ -351,7 +452,7 @@ class FlatsPage(QWidget):
 
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText(
-            "🔍 Filter by flat no / block / owner / tenant…"
+            f"🔍 Filter by {singular.lower()} no / block / owner / tenant…"
         )
         self.filter_edit.setFixedHeight(30)
         self.filter_edit.setClearButtonEnabled(True)
@@ -364,24 +465,38 @@ class FlatsPage(QWidget):
         self.show_inactive.toggled.connect(lambda _: self.refresh())
         bar_l.addWidget(self.show_inactive)
 
-        add_btn = QPushButton("+ Add Flat")
-        add_btn.setObjectName("btn_primary"); add_btn.setFixedHeight(30)
-        add_btn.clicked.connect(self._on_add)
-        bar_l.addWidget(add_btn)
+        self.add_btn = QPushButton(f"+ Add {singular}")
+        self.add_btn.setObjectName("btn_primary"); self.add_btn.setFixedHeight(30)
+        self.add_btn.clicked.connect(self._on_add)
+        bar_l.addWidget(self.add_btn)
 
         edit_btn = QPushButton("Edit")
         edit_btn.setFixedHeight(30); edit_btn.clicked.connect(self._on_edit)
         bar_l.addWidget(edit_btn)
 
+        delete_btn = QPushButton("Delete")
+        delete_btn.setFixedHeight(30)
+        delete_btn.setToolTip(
+            f"Deactivate the selected {singular.lower()} (soft-delete; the "
+            "companion ledger is preserved so existing vouchers stay valid)."
+        )
+        delete_btn.clicked.connect(self._on_delete)
+        bar_l.addWidget(delete_btn)
+
+        settings_btn = QPushButton("⚙ Society")
+        settings_btn.setFixedHeight(30)
+        settings_btn.setToolTip(
+            "Society-wide settings: unit type (flats vs plots) and area unit."
+        )
+        settings_btn.clicked.connect(self._on_settings)
+        bar_l.addWidget(settings_btn)
+
         layout.addWidget(bar)
 
         # Table — new columns: Tenant, Bill Payer, Outstanding
+        # Labels for unit number / type column adapt to FLAT vs PLOT.
         self.table = QTableWidget(0, 9)
-        self.table.setHorizontalHeaderLabels([
-            "Flat #", "Block", "Type", "Area",
-            "Owner", "Tenant", "Bill Payer",
-            "Outstanding", "Status",
-        ])
+        self.table.setHorizontalHeaderLabels(self._table_headers())
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -423,7 +538,9 @@ class FlatsPage(QWidget):
             self.table.setItem(r, 0, name_item)
             self.table.setItem(r, 1, QTableWidgetItem(f.get("block") or ""))
             self.table.setItem(r, 2, QTableWidgetItem(f.get("flat_type") or ""))
-            area = f.get("built_up_area_sqft") or f.get("area_sqft")
+            # Prefer the single-size column; fall back to built_up for
+            # rows entered before the single-size UI shipped.
+            area = f.get("area_sqft") or f.get("built_up_area_sqft")
             self.table.setItem(r, 3, QTableWidgetItem(
                 f"{area:,.0f}" if area else ""
             ))
@@ -495,7 +612,8 @@ class FlatsPage(QWidget):
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _on_add(self):
-        dlg = _FlatDialog(self.flats, self.owners, flat_id=None, parent=self)
+        dlg = _FlatDialog(self.flats, self.owners, flat_id=None,
+                          parent=self, settings=self.settings)
         dlg.saved.connect(self.refresh)
         dlg.exec()
 
@@ -503,10 +621,77 @@ class FlatsPage(QWidget):
         fid = self._selected_flat_id()
         if not fid:
             QMessageBox.information(
-                self, "No flat selected",
+                self, f"No {self.settings.unit_noun().lower()} selected",
                 "Pick a row first, then click Edit.",
             )
             return
-        dlg = _FlatDialog(self.flats, self.owners, flat_id=fid, parent=self)
+        dlg = _FlatDialog(self.flats, self.owners, flat_id=fid,
+                          parent=self, settings=self.settings)
         dlg.saved.connect(self.refresh)
         dlg.exec()
+
+    def _table_headers(self) -> list[str]:
+        singular = self.settings.unit_noun()
+        area_label = self.settings.area_unit_label()
+        return [
+            f"{singular} #", "Block", "Type", f"Area ({area_label})",
+            "Owner", "Tenant", "Bill Payer",
+            "Outstanding", "Status",
+        ]
+
+    def _on_settings(self):
+        dlg = _SocietySettingsDialog(self.settings, parent=self)
+        dlg.saved.connect(self._on_settings_saved)
+        dlg.exec()
+
+    def _on_settings_saved(self):
+        # Refresh labels in place — title, subtitle, add button, filter
+        # placeholder, table headers — without reconstructing the page.
+        plural   = self.settings.unit_noun(plural=True)
+        singular = self.settings.unit_noun()
+        self.title_label.setText(plural)
+        self.subtitle_label.setText(
+            f"All {plural.lower()} in the society. Each {singular.lower()} "
+            "has its own ledger under Sundry Debtors for maintenance billing."
+        )
+        self.add_btn.setText(f"+ Add {singular}")
+        self.filter_edit.setPlaceholderText(
+            f"🔍 Filter by {singular.lower()} no / block / owner / tenant…"
+        )
+        self.table.setHorizontalHeaderLabels(self._table_headers())
+        self.refresh()
+
+    def _on_delete(self):
+        fid = self._selected_flat_id()
+        if not fid:
+            QMessageBox.information(
+                self, f"No {self.settings.unit_noun().lower()} selected",
+                "Pick a row first, then click Delete.",
+            )
+            return
+
+        # Read the visible flat number for a friendlier confirm prompt.
+        row = self.table.currentRow()
+        flat_no_item = self.table.item(row, 0) if row >= 0 else None
+        flat_no = flat_no_item.text() if flat_no_item else f"#{fid}"
+
+        confirm = QMessageBox.question(
+            self, "Delete flat?",
+            f"Deactivate flat {flat_no}?\n\n"
+            "The flat will be hidden from active lists and removed from the "
+            "resident portal on the next cloud sync. Its companion ledger "
+            "stays in the books so existing vouchers remain valid — use "
+            "'Show inactive' to bring it back if needed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            self.flats.deactivate_flat(fid)
+        except Exception as e:
+            QMessageBox.critical(self, "Delete failed", str(e))
+            return
+
+        self.refresh()

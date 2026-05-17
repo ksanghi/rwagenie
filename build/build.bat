@@ -28,7 +28,7 @@ REM ─────────────────────────�
 setlocal enabledelayedexpansion
 
 set APP_NAME=RWAGenie
-set VERSION=0.1.3
+set VERSION=0.1.4
 set OUTPUT_DIR=build\output
 set DIST_DIR=build\dist
 

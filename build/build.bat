@@ -58,6 +58,19 @@ echo.
 echo === [1/2]  Compiling with Nuitka  (5-15 minutes) ===
 echo.
 
+REM NOTE: Nuitka's `--product-name / --product-version / --file-version /
+REM --file-description / --copyright` flags write Windows resources into the
+REM .exe via a separate post-processing pass. On Windows 11 with default
+REM Defender real-time scanning, that pass intermittently fails with:
+REM   "FATAL: Failed to add resources to file ... the result is unusable."
+REM because Defender briefly locks the freshly-written .exe for inspection.
+REM Workarounds are listed in the Nuitka warning each time it fires:
+REM   1) Add %~dp0..\build\output to Defender's exclusion list, then re-add
+REM      the flags above.
+REM   2) Skip the flags (current setting) — the installer's Inno Setup script
+REM      still records the version, just not in the .exe's Properties dialog.
+REM We pick (2) here for build reliability. Re-add the flags if you've
+REM excluded the build dir from Defender.
 python -m nuitka ^
     --standalone ^
     --enable-plugin=pyside6 ^
@@ -74,11 +87,6 @@ python -m nuitka ^
     --output-filename=%APP_NAME%.exe ^
     --remove-output ^
     --assume-yes-for-downloads ^
-    --product-name=%APP_NAME% ^
-    --product-version=%VERSION% ^
-    --file-version=%VERSION% ^
-    --file-description="RWAGenie - Resident Welfare Association management" ^
-    --copyright="(c) 2026 Aiccounting" ^
     main.py
 
 if errorlevel 1 (

@@ -117,6 +117,7 @@ class CollapsibleSection(QWidget):
 _LABEL_TO_SECTION: list[tuple[str, str]] = [
     # RWA (RWAGenie's own pages, registered by RWAMainWindow)
     ("Flats",            "RWA"),
+    ("Plots",            "RWA"),   # PLOT-type societies (society.unit_type=PLOT)
     ("Members",          "RWA"),
     ("Notice Board",     "RWA"),
     ("Complaints",       "RWA"),
